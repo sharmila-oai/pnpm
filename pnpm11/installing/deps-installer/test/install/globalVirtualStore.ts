@@ -10,6 +10,7 @@ import { StoreIndex, storeIndexKey } from '@pnpm/store.index'
 import { addDistTag, getIntegrity } from '@pnpm/testing.registry-mock'
 import type { ProjectRootDir } from '@pnpm/types'
 import { rimrafSync } from '@zkochan/rimraf'
+import { safeExeca as execa } from 'execa'
 
 import { testDefaults } from '../utils/index.js'
 
@@ -58,6 +59,48 @@ test('using a global virtual store', async () => {
     expect(fs.existsSync(path.join(globalVirtualStoreDir, '@pnpm.e2e/pkg-with-1-dep/100.0.0', files[0], 'node_modules/@pnpm.e2e/pkg-with-1-dep/package.json'))).toBeTruthy()
     expect(fs.existsSync(path.join(globalVirtualStoreDir, '@pnpm.e2e/pkg-with-1-dep/100.0.0', files[0], 'node_modules/@pnpm.e2e/dep-of-pkg-with-1-dep/package.json'))).toBeTruthy()
   }
+})
+
+test('TypeScript resolves consumer-provided types from global virtual store packages', async () => {
+  prepareEmpty()
+  const globalVirtualStoreDir = path.resolve('links')
+  await install({
+    dependencies: {
+      'next-themes': '0.3.0',
+      react: '18.3.1',
+      'react-dom': '18.3.1',
+    },
+    devDependencies: {
+      '@types/react': '18.3.3',
+      typescript: '5.5.4',
+    },
+  }, testDefaults({
+    enableGlobalVirtualStore: true,
+    virtualStoreDir: globalVirtualStoreDir,
+  }))
+
+  fs.writeFileSync('index.ts', `
+import { useTheme } from 'next-themes'
+
+type IsAny<T> = 0 extends (1 & T) ? true : false
+type AssertFalse<T extends false> = T
+
+const { setTheme } = useTheme()
+type SetThemeIsAny = IsAny<typeof setTheme>
+type Check = AssertFalse<SetThemeIsAny>
+  `)
+
+  await execa(process.execPath, [
+    'node_modules/typescript/bin/tsc',
+    '--noEmit',
+    '--skipLibCheck',
+    '--strict',
+    '--moduleResolution',
+    'bundler',
+    '--module',
+    'esnext',
+    'index.ts',
+  ])
 })
 
 test('reinstall from warm global virtual store after deleting node_modules', async () => {

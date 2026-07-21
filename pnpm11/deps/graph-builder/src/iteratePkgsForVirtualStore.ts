@@ -12,11 +12,14 @@ import {
   type PkgMetaAndSnapshot,
 } from '@pnpm/deps.graph-hasher'
 import * as dp from '@pnpm/deps.path'
+import type { IncludedDependencies } from '@pnpm/installing.modules-yaml'
 import type { LockfileObject } from '@pnpm/lockfile.fs'
 import {
   nameVerFromPkgSnapshot,
 } from '@pnpm/lockfile.utils'
-import type { AllowBuild, DepPath, SupportedArchitectures } from '@pnpm/types'
+import type { AllowBuild, DepPath, ProjectId, SupportedArchitectures } from '@pnpm/types'
+
+import { getGlobalVirtualStoreTypeDependencies } from './getGlobalVirtualStoreTypeDependencies.js'
 
 interface PkgSnapshotWithLocation {
   pkgMeta: PkgMetaAndSnapshot
@@ -29,6 +32,8 @@ export function * iteratePkgsForVirtualStore (lockfile: LockfileObject, opts: {
   virtualStoreDirMaxLength: number
   virtualStoreDir: string
   globalVirtualStoreDir: string
+  importerIds: ProjectId[]
+  include: IncludedDependencies
   supportedArchitectures?: SupportedArchitectures
 }): IterableIterator<PkgSnapshotWithLocation> {
   // Resolve the project's pinned runtime Node version once per
@@ -41,6 +46,8 @@ export function * iteratePkgsForVirtualStore (lockfile: LockfileObject, opts: {
   if (opts.enableGlobalVirtualStore) {
     for (const { hash, pkgMeta } of hashDependencyPaths(lockfile, {
       allowBuild: opts.allowBuild,
+      importerIds: opts.importerIds,
+      include: opts.include,
       supportedArchitectures: opts.supportedArchitectures,
       nodeVersion,
     })) {
@@ -89,14 +96,29 @@ function hashDependencyPaths (
   lockfile: LockfileObject,
   {
     allowBuild,
+    importerIds,
+    include,
     supportedArchitectures,
     nodeVersion,
   }: {
     allowBuild?: AllowBuild
+    importerIds: ProjectId[]
+    include: IncludedDependencies
     supportedArchitectures?: SupportedArchitectures
     nodeVersion?: string
   }
 ): IterableIterator<HashedDepPath<PkgMetaAndSnapshot>> {
   const graph = lockfileToDepGraph(lockfile, supportedArchitectures)
+  const typeDependenciesByDepPath = getGlobalVirtualStoreTypeDependencies(lockfile, {
+    importerIds,
+    include,
+  })
+  // Each type link changes the shared slot's contents, so it must also change the slot hash.
+  for (const [depPath, typeDependencies] of typeDependenciesByDepPath) {
+    const node = graph[depPath]
+    if (node != null) {
+      Object.assign(node.children, typeDependencies)
+    }
+  }
   return iterateHashedGraphNodes(graph, iteratePkgMeta(lockfile, graph), allowBuild, supportedArchitectures, nodeVersion)
 }

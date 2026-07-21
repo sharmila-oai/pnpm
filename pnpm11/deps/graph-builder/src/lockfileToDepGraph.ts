@@ -33,6 +33,7 @@ import type {
 import { pathExists } from 'path-exists'
 import { equals, isEmpty } from 'ramda'
 
+import { getGlobalVirtualStoreTypeDependencies } from './getGlobalVirtualStoreTypeDependencies.js'
 import { iteratePkgsForVirtualStore } from './iteratePkgsForVirtualStore.js'
 
 const brokenModulesLogger = logger('_broken_node_modules')
@@ -145,6 +146,9 @@ export async function lockfileToDepGraph (
     virtualStoreDirMaxLength: opts.virtualStoreDirMaxLength,
     locationByDepPath,
   } satisfies GetChildrenPathsContext)
+  const typeDependenciesByDepPath = opts.enableGlobalVirtualStore
+    ? getGlobalVirtualStoreTypeDependencies(lockfile, opts)
+    : new Map<DepPath, Record<string, DepPath>>()
 
   for (const node of Object.values(graph)) {
     const pkgSnapshot = lockfile.packages![node.depPath]
@@ -154,6 +158,11 @@ export async function lockfileToDepGraph (
     }
     const peerDeps = pkgSnapshot.peerDependencies ? new Set(Object.keys(pkgSnapshot.peerDependencies)) : null
     node.children = _getChildrenPaths(allDeps, peerDeps, '.')
+    for (const [alias, depPath] of Object.entries(typeDependenciesByDepPath.get(node.depPath) ?? {})) {
+      if (node.children[alias] == null && locationByDepPath[depPath] != null) {
+        node.children[alias] = locationByDepPath[depPath]
+      }
+    }
   }
 
   const directDependenciesByImporterId: DirectDependenciesByImporterId = {}
