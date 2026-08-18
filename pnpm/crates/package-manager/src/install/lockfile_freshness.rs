@@ -384,11 +384,13 @@ pub(crate) fn check_importer_satisfies(
     let manifest_for_freshness: &PackageManifest = if parsed_overrides.is_some()
         || config.exclude_links_from_lockfile
     {
-        let root_dir = manifest.path().parent().unwrap_or_else(|| Path::new("."));
+        let manifest_dir = manifest.path().parent().unwrap_or_else(|| Path::new("."));
         normalized_manifest_holder = {
             let mut cloned: PackageManifest = manifest.clone();
             if let Some(parsed) = parsed_overrides {
-                crate::VersionsOverrider::new(parsed, root_dir).apply(&mut cloned, Some(root_dir));
+                let workspace_dir = config.workspace_dir.as_deref().unwrap_or(manifest_dir);
+                crate::VersionsOverrider::new(parsed, workspace_dir)
+                    .apply(&mut cloned, Some(manifest_dir));
             }
             if config.exclude_links_from_lockfile {
                 exclude_linked_dependencies(&mut cloned);
