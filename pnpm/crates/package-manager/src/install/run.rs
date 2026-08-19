@@ -539,7 +539,9 @@ where
         // the resolve path below so an install spawns at most one.
         let pnpmfile_hook = pnpmfile_hook_override.or_else(|| {
             (!config.ignore_pnpmfile)
-                .then(|| pnpm_hooks::finder::load_pnpmfile(&workspace_root))
+                .then(|| {
+                    pnpm_hooks::finder::load_pnpmfiles(&workspace_root, config.pnpmfile.as_deref())
+                })
                 .flatten()
         });
 
@@ -939,6 +941,7 @@ where
                             || !crate::check_custom_resolver_force_resolve::force_resolve_from_pnpmfile(
                                 lockfile,
                                 &workspace_root,
+                                config,
                             )
                             .await
                             .map_err(InstallError::CustomResolverForceResolve)?
