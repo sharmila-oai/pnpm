@@ -466,13 +466,17 @@ impl crate::CustomFetcher for NodeJsCustomFetcher {
             .call_fetcher(
                 self.index,
                 "canFetch",
-                serde_json::json!([pkg_id, resolution]),
+                serde_json::json!([pkg_id, &resolution]),
                 Arc::new(|_| {}),
                 None,
             )
             .await?;
         let can_fetch = response.get("value").is_some_and(is_js_truthy);
-        let resolution = response.get("resolution").cloned().unwrap_or(Value::Null);
+        // A worker that answers without a `resolution` — the reply shape for a
+        // fetcher whose `canFetch` went missing between capability probe and
+        // call — leaves the caller's resolution untouched rather than blanking
+        // it for every fetcher behind this one.
+        let resolution = response.get("resolution").cloned().unwrap_or(resolution);
         Ok((can_fetch, resolution))
     }
 

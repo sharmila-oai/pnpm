@@ -423,12 +423,12 @@ fn custom_fetchers_cannot_replace_locked_integrity_or_return_unverified_files() 
         (
             "fabricated map",
             "return { filesMap: new Map([['package.json', path.join(__dirname, 'package.json')]]), requiresBuild: false };".to_string(),
-            "files",
+            "not verified by a native tarball fetcher",
         ),
         (
             "modified callback map",
             "const result = await fetchers.remoteTarball(cafs, { ...resolution, tarball: resolution.tarball.replace('original.tgz', 'custom.tgz') }, opts); result.filesMap.set('injected.json', result.filesMap.get('package.json')); return result;".to_string(),
-            "files",
+            "not verified by a native tarball fetcher",
         ),
     ] {
         let CommandTempCwd { root: _root, workspace, .. } = CommandTempCwd::init();

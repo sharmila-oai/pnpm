@@ -1359,3 +1359,61 @@ async fn a_delegated_directory_resolution_reports_mutable_source() {
 
     drop(store_tmp);
 }
+
+/// A fresh install computing a missing tarball digest lets a hook point the
+/// package at a source that has no digest to compute. The install pass
+/// materializes a directory through its own dispatch, so refusing here would
+/// fail a resolution that a frozen install of the same lockfile accepts.
+#[tokio::test]
+async fn an_unpinned_delegate_to_a_directory_keeps_its_resolution() {
+    let store_tmp = tempfile::tempdir().expect("tempdir");
+    let config = leaked_offline_config("https://registry.test", store_tmp.path());
+    let session = scripted_session(
+        true,
+        Ok(serde_json::json!({
+            "delegate": { "type": "directory", "directory": "/synthetic/pkg" },
+        })),
+    );
+    let unpinned = LockfileResolution::Tarball(pnpm_lockfile::TarballResolution {
+        tarball: "https://registry.test/pkg.tgz".to_string(),
+        integrity: None,
+        git_hosted: None,
+        path: None,
+    });
+
+    let resolution = session
+        .resolve_tarball_integrity::<pnpm_reporter::SilentReporter>(
+            pnpm_tarball::DownloadTarballToStore {
+                http_client: &pnpm_network::ThrottledClient::default(),
+                store_dir: &config.store_dir,
+                store_index: None,
+                store_index_writer: None,
+                verify_store_integrity: config.verify_store_integrity,
+                strict_store_pkg_content_check: config.strict_store_pkg_content_check,
+                verified_files_cache: pnpm_store_dir::SharedVerifiedFilesCache::default(),
+                package_integrity: None,
+                package_unpacked_size: None,
+                package_file_count: None,
+                package_url: "https://registry.test/pkg.tgz",
+                package_id: "pkg@1.0.0",
+                requester: "",
+                prefetched_cas_paths: None,
+                retry_opts: pnpm_tarball::RetryOpts { retries: 0, ..Default::default() },
+                auth_headers: &config.auth_headers,
+                ignore_file_pattern: None,
+                offline: true,
+                progress_reported: None,
+                append_manifest: None,
+            },
+            &unpinned,
+            serde_json::json!({ "lockfileDir": store_tmp.path() }),
+        )
+        .await
+        .expect("a digest-less delegate is not an integrity failure");
+
+    assert!(
+        matches!(resolution, LockfileResolution::Tarball(ref tarball) if tarball.integrity.is_none()),
+        "the unpinned resolution is recorded unchanged: {resolution:?}",
+    );
+    drop(store_tmp);
+}

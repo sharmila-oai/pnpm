@@ -49,15 +49,21 @@ impl CustomFetcherSession {
         {
             CustomFetchOutcome::Fetched { resolution, tarball } => (resolution, tarball),
             CustomFetchOutcome::Declined(resolution) => {
-                let tarball =
+                let Some(tarball) =
                     fetch_custom_tarball::<Reporter>(download.clone(), &resolution, &lockfile_dir)
-                        .await?;
+                        .await?
+                else {
+                    return Ok(resolution);
+                };
                 (resolution, tarball)
             }
             CustomFetchOutcome::Delegate { resolution, delegate } => {
-                let tarball =
+                let Some(tarball) =
                     fetch_custom_tarball::<Reporter>(download.clone(), &delegate, &lockfile_dir)
-                        .await?;
+                        .await?
+                else {
+                    return Ok(resolution);
+                };
                 (resolution, tarball)
             }
         };
@@ -217,11 +223,15 @@ fn decode_resolution(
     serde_json::from_value(value).map_err(|error| failure(package_id, error))
 }
 
+/// `None` when the hook pointed the package at a source that carries no archive
+/// digest — a directory or a git checkout. Only a fresh install's missing-digest
+/// discovery calls this, so there is nothing to hash and nothing to verify; the
+/// install pass materializes such a resolution through its own dispatch.
 async fn fetch_custom_tarball<Reporter: self::Reporter>(
     download: DownloadTarballToStore<'_>,
     resolution: &LockfileResolution,
     lockfile_dir: &Path,
-) -> Result<Arc<FetchedTarball>, InstallPackageBySnapshotError> {
+) -> Result<Option<Arc<FetchedTarball>>, InstallPackageBySnapshotError> {
     let location = match resolution {
         LockfileResolution::Tarball(resolution) => TarballLocation {
             tarball: resolution.tarball.clone(),
@@ -231,15 +241,12 @@ async fn fetch_custom_tarball<Reporter: self::Reporter>(
             tarball: download.package_url.to_owned(),
             integrity: Some(resolution.integrity.clone()),
         },
-        _ => {
-            return Err(InstallPackageBySnapshotError::CustomFetcherIntegrityMismatch {
-                package_id: download.package_id.to_owned(),
-            });
-        }
+        _ => return Ok(None),
     };
     fetch_location::<Reporter>(&download, location, lockfile_dir)
         .await
         .map_err(InstallPackageBySnapshotError::DownloadTarball)
+        .map(Some)
 }
 
 async fn fetch_location<Reporter: self::Reporter>(
