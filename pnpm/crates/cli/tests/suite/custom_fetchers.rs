@@ -403,6 +403,42 @@ fn declining_fetcher_rewrites_the_builtin_tarball_url() {
     mirror.assert();
 }
 
+/// Rust counterpart of the TypeScript picker's "cannot replace a locked archive
+/// with a non-archive source": a hook that swaps a pinned tarball for a
+/// directory while declining leaves nothing to verify the locked digest
+/// against, so the install fails instead of importing unverified content.
+#[test]
+fn a_declining_fetcher_cannot_swap_a_locked_archive_for_a_directory() {
+    let CommandTempCwd { root: _root, workspace, .. } = CommandTempCwd::init();
+    let mut registry = mockito::Server::new();
+    let tarball = minimal_tarball("fetcher-pkg", "1.0.0");
+    let (metadata, original) =
+        mock_fetcher_package(&mut registry, Some(&sha512_integrity(&tarball)));
+    configure_fetcher_project(&workspace, &registry.url(), "configured.cjs");
+    fs::write(
+        workspace.join("configured.cjs"),
+        r"module.exports = { fetchers: [{
+  canFetch (_pkgId, resolution) {
+    resolution.type = 'directory';
+    resolution.directory = '/synthetic/package';
+    return false;
+  },
+  fetch () { throw new Error('declining fetcher was called'); },
+}] };",
+    )
+    .expect("write declining fetcher");
+
+    let output = pacquet_at(&workspace).with_arg("install").assert().failure();
+    let stderr = String::from_utf8_lossy(&output.get_output().stderr);
+    assert!(stderr.contains("ERR_PNPM_TARBALL_INTEGRITY"), "stderr: {stderr}");
+    assert!(
+        !workspace.join("node_modules/fetcher-pkg/package.json").exists(),
+        "a rewritten resolution must not import content",
+    );
+    metadata.assert();
+    original.assert();
+}
+
 #[test]
 fn custom_fetchers_cannot_replace_locked_integrity_or_return_unverified_files() {
     let changed_tarball = minimal_tarball("fetcher-pkg", "2.0.0");
