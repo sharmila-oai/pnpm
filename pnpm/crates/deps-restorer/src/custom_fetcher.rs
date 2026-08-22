@@ -273,7 +273,7 @@ async fn run_callback<Reporter: self::Reporter>(
     callback: &FetcherCallback,
     verified: &mut Vec<Arc<FetchedTarball>>,
 ) -> Result<Value, FetchErrorDetails> {
-    match callback.method {
+    let expects_local_archive = match callback.method {
         FetcherMethod::CafsInfo => {
             return Ok(serde_json::json!({ "storeDir": download.store_dir.root() }));
         }
@@ -289,8 +289,9 @@ async fn run_callback<Reporter: self::Reporter>(
                 .keep();
             return Ok(serde_json::json!(directory));
         }
-        FetcherMethod::LocalTarball | FetcherMethod::RemoteTarball => {}
-    }
+        FetcherMethod::LocalTarball => true,
+        FetcherMethod::RemoteTarball => false,
+    };
     for option in ["ignoreFilePattern", "appendManifest"] {
         if callback.options.get(option).is_some_and(|value| !value.is_null()) {
             return Err(callback_error(
@@ -308,8 +309,16 @@ async fn run_callback<Reporter: self::Reporter>(
     let location: TarballLocation = serde_json::from_value(location).map_err(|error| {
         callback_error(error.to_string(), "ERR_PNPM_INVALID_FETCHER_RESOLUTION")
     })?;
-    let local = location.tarball.starts_with("file:");
-    if matches!(callback.method, FetcherMethod::LocalTarball) != local {
+    // Each callback answers for one transport, so the URL has to name that
+    // transport and no other. Without the positive test on the remote side, a
+    // scheme neither fetcher handles — `ftp:`, `data:`, a bare path — counts as
+    // remote and fails deep in the HTTP client instead of here.
+    let scheme_matches_callback = if expects_local_archive {
+        location.tarball.starts_with("file:")
+    } else {
+        location.tarball.starts_with("https:") || location.tarball.starts_with("http:")
+    };
+    if !scheme_matches_callback {
         return Err(callback_error(
             "native tarball callback received an incompatible URL",
             "ERR_PNPM_INVALID_FETCHER_RESOLUTION",

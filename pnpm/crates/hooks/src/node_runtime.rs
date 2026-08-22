@@ -486,15 +486,7 @@ impl crate::CustomFetcher for NodeJsCustomFetcher {
         resolution: Value,
         opts: Value,
     ) -> Result<Value, HookError> {
-        self.worker
-            .call_fetcher(
-                self.index,
-                "fetch",
-                serde_json::json!([Value::Null, resolution, opts, Value::Null]),
-                Arc::new(|_| {}),
-                None,
-            )
-            .await
+        self.call_fetch(resolution, opts, None).await
     }
 
     async fn fetch_with_callbacks(
@@ -504,13 +496,29 @@ impl crate::CustomFetcher for NodeJsCustomFetcher {
         opts: Value,
         callbacks: crate::FetcherCallbackSender,
     ) -> Result<Value, HookError> {
+        self.call_fetch(resolution, opts, Some(callbacks)).await
+    }
+}
+
+impl NodeJsCustomFetcher {
+    /// The payload is positional to match the TypeScript hook signature
+    /// `fetch(cafs, resolution, opts, fetchers)`. Slots 0 and 3 are placeholders
+    /// the worker fills in: with `callbacks`, it substitutes a CAFS handle and
+    /// the native tarball fetchers before calling the hook; without them, the
+    /// hook sees `null` in both and answers with a `delegate` envelope instead.
+    async fn call_fetch(
+        &self,
+        resolution: Value,
+        opts: Value,
+        callbacks: Option<crate::FetcherCallbackSender>,
+    ) -> Result<Value, HookError> {
         self.worker
             .call_fetcher(
                 self.index,
                 "fetch",
                 serde_json::json!([Value::Null, resolution, opts, Value::Null]),
                 Arc::new(|_| {}),
-                Some(callbacks),
+                callbacks,
             )
             .await
     }

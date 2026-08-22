@@ -421,6 +421,16 @@ fn custom_fetchers_cannot_replace_locked_integrity_or_return_unverified_files() 
             "integrity",
         ),
         (
+            "remote callback given a non-http scheme",
+            "return fetchers.remoteTarball(cafs, { tarball: 'ftp://example.invalid/pkg.tgz' }, opts);".to_string(),
+            "incompatible url",
+        ),
+        (
+            "remote callback given a bare path",
+            "return fetchers.remoteTarball(cafs, { tarball: '../../../etc/passwd' }, opts);".to_string(),
+            "incompatible url",
+        ),
+        (
             "fabricated map",
             "return { filesMap: new Map([['package.json', path.join(__dirname, 'package.json')]]), requiresBuild: false };".to_string(),
             "not verified by a native tarball fetcher",
